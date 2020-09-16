@@ -1,1 +1,63 @@
 # Teste
+import cv2
+import timeit
+import time
+import numpy as np
+from scipy.ndimage.filters import gaussian_filter
+import matplotlib.pyplot as plt
+import skimage
+from skimage.transform import rescale
+from sklearn.feature_extraction import image
+from sklearn.cluster import spectral_clustering
+from sklearn.utils.fixes import parse_version
+
+start = timeit.timeit()
+#I opened an image that i want to segmentate
+imag = cv2.imread("13-08-20-9.bmp")
+pixel_values = imag.reshape((-1, 3))
+pixel_values = np.float32(pixel_values)
+#print(pixel_values.shape)
+criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 500, 0.2)
+k = 2
+_, labels, (centers) = cv2.kmeans(pixel_values, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+centers = np.uint8(centers)
+labels = labels.flatten()
+segmented_image = centers[labels.flatten()]
+segmented_image = segmented_image.reshape(imag.shape)
+masked_image = np.copy(imag)
+masked_image = masked_image.reshape((-1, 3))
+cluster = 0
+masked_image[labels == cluster] = [0, 0, 0]
+masked_image = masked_image.reshape(imag.shape)
+
+if parse_version(skimage.__version__) >= parse_version('0.14'):
+    rescale_params = {'anti_aliasing': False, 'multichannel': False}
+else:
+    rescale_params = {}
+orig_coins = masked_image
+smoothened_coins = gaussian_filter(orig_coins, sigma=2)
+rescaled_coins = rescale(smoothened_coins, 0.2, mode="reflect",
+                         **rescale_params)
+graph = image.img_to_graph(rescaled_coins)
+beta = 10
+eps = 1e-6
+graph.data = np.exp(-beta * graph.data / graph.data.std()) + eps
+N_REGIONS = 7
+for assign_labels in ('kmeans', 'discretize'):
+    t0 = time.time()
+    labels = spectral_clustering(graph, n_clusters=N_REGIONS,
+                                 assign_labels=assign_labels, random_state=42)
+    t1 = time.time()
+    labels = labels.reshape(rescaled_coins.shape)
+
+    plt.figure(figsize=(5, 5))
+    plt.imshow(rescaled_coins, cmap=plt.cm.gray)
+    for l in range(N_REGIONS):
+        plt.contour(labels == l,
+                    colors=[plt.cm.nipy_spectral(l / float(N_REGIONS))])
+    plt.xticks(())
+    plt.yticks(())
+    title = 'Spectral clustering: %s, %.2fs' % (assign_labels, (t1 - t0))
+    print(title)
+    plt.title(title)
+plt.show()
